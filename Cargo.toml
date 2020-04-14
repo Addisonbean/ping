@@ -1,0 +1,9 @@
+[package]
+name = "ping"
+version = "0.1.0"
+authors = ["Addison Bean <addisonbean@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+clap = "2"
+pnet = "0.25"
