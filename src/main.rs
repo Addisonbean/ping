@@ -9,7 +9,10 @@ use pnet::packet::Packet;
 use pnet::transport::{icmp_packet_iter, TransportChannelType::Layer4, TransportProtocol, transport_channel};
 
 use std::io;
-use std::net::IpAddr;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic;
+use std::thread;
 
 fn main() -> io::Result<()> {
     let matches = App::new("ping")
@@ -53,9 +56,22 @@ fn main() -> io::Result<()> {
     // TODO: check for failed parse
     sender.send_to(req, hostname.parse().unwrap())?;
 
-    // -- Receive it
-    let mut iter = icmp_packet_iter(&mut receiver);
-    println!("{:?}", iter.next());
+    let mut num_received = Arc::new(AtomicU64::new(0));
+
+    let mut thread_num_received = Arc::clone(&num_received);
+    let tmp = thread::spawn(move || {
+        let mut iter = icmp_packet_iter(&mut receiver);
+
+        thread_num_received.fetch_add(1, atomic::Ordering::SeqCst);
+
+        println!("{:?}", iter.next());
+    });
+
+    tmp.join().unwrap();
+
+    // -- Print summary
+
+    println!("Num received: {}", num_received.load(atomic::Ordering::SeqCst));
 
     Ok(())
 }
