@@ -35,7 +35,7 @@ fn send_ping(addr: IpAddr, data: &mut [u8], sender: &mut TransportSender) -> io:
     sender.send_to(req, addr)
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 struct PingStats {
     num_sent: u64,
     num_received: u64,
@@ -43,11 +43,11 @@ struct PingStats {
 }
 
 impl PingStats {
-    fn avg_rtt(self) -> f64 {
+    fn avg_rtt(self) -> u128 {
         if self.num_received != 0 {
-            self.total_rtt as f64 / self.num_received as f64
+            self.total_rtt / self.num_received as u128
         } else {
-            0.0
+            0
         }
     }
 
@@ -57,21 +57,21 @@ impl PingStats {
 }
 
 fn print_stats_for_rtt(rtt: u128, stats: PingStats) {
-    println!("Response received: {}ms rtt, {:.2} average rtt, {}% total loss",
+    println!("Response received: {}ms rtt, {} average rtt, {:.2}% total loss",
         rtt,
         stats.avg_rtt(),
-        stats.total_percent_loss() as u64 * 100,
+        stats.total_percent_loss() * 100.0,
     );
 }
 
 fn print_stats_for_timeout(stats: PingStats) {
-    println!("Response timed out: {:.2} average rtt, {}% total loss",
+    println!("Response timed out: {} average rtt, {:.2}% total loss",
         stats.avg_rtt(),
-        stats.total_percent_loss() as u64 * 100,
+        stats.total_percent_loss() * 100.0,
     );
 }
 
-fn main() -> io::Result<()> {
+fn ping_app() -> io::Result<()> {
     let matches = App::new("ping")
         .arg(Arg::with_name("address")
             .takes_value(true)
@@ -118,5 +118,11 @@ fn main() -> io::Result<()> {
         }
 
         sleep(Duration::from_millis(500));
+    }
+}
+
+fn main() {
+    if let Err(e) = ping_app() {
+        eprintln!("Error: {}", e);
     }
 }
