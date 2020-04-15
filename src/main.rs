@@ -10,25 +10,15 @@ use pnet::transport::{icmp_packet_iter, TransportChannelType::Layer4, TransportP
 
 use std::io;
 use std::net::IpAddr;
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic;
-use std::thread;
 use std::time::{Duration, Instant};
-
-#[derive(Clone, Copy, Default)]
-struct PingStats {
-    num_sent: u64,
-    num_received: u64,
-    total_rtt: u128,
-}
+use std::thread::sleep;
 
 fn make_ping_request<'a>(data: &'a mut [u8]) -> MutableEchoRequestPacket<'a> {
     let mut req = MutableEchoRequestPacket::new(data).unwrap();
     req.set_icmp_type(IcmpTypes::EchoRequest);
 
-    // req.set_identifier(0);
-    // req.set_sequence_number(0);
+    req.set_identifier(0);
+    req.set_sequence_number(0);
 
     req.set_checksum(0);
     let cs = checksum(req.packet(), 1);
@@ -42,15 +32,39 @@ fn send_ping(hostname: IpAddr, data: &mut [u8], sender: &mut TransportSender) ->
     sender.send_to(req, hostname)
 }
 
+#[derive(Clone, Copy, Default)]
+struct PingStats {
+    num_sent: u64,
+    num_received: u64,
+    total_rtt: u128,
+}
+
+impl PingStats {
+    fn avg_rtt(self) -> f64 {
+        if self.num_received != 0 {
+            self.total_rtt as f64 / self.num_received as f64
+        } else {
+            0.0
+        }
+    }
+
+    fn total_loss(self) -> f64 {
+        1.0 - self.num_received as f64 / self.num_sent as f64
+    }
+}
 
 fn print_stats_for_rtt(rtt: u128, stats: PingStats) {
-    let avg_rtt = stats.total_rtt as f64 / stats.num_received as f64;
-    let total_loss = 1.0 - stats.num_received as f64 / stats.num_sent as f64;
-    println!(
-        "Response received: {}ms rtt, {:.2} average rtt, {:.2}% total loss",
+    println!("Response received: {}ms rtt, {:.2} average rtt, {}% total loss",
         rtt,
-        avg_rtt,
-        total_loss,
+        stats.avg_rtt(),
+        stats.total_loss() as u64 * 100,
+    );
+}
+
+fn print_stats_failed_request(stats: PingStats) {
+    println!("Response timed out: {:.2} average rtt, {}% total loss",
+        stats.avg_rtt(),
+        stats.total_loss() as u64 * 100,
     );
 }
 
@@ -76,12 +90,6 @@ fn main() -> io::Result<()> {
     let (mut sender, mut receiver) = transport_channel(4096, protocol)?;
     sender.set_ttl(64)?;
 
-    let stop_signal_sent = Arc::new(AtomicBool::new(false));
-    let stop_signal_sent_handler = Arc::clone(&stop_signal_sent);
-    ctrlc::set_handler(move || {
-        stop_signal_sent_handler.store(true, atomic::Ordering::SeqCst);
-    }).expect("Could not set SIGINT/SIGTERM handler.");
-
     let mut packet_iter = icmp_packet_iter(&mut receiver);
     let mut data = [0; MutableEchoRequestPacket::minimum_packet_size()];
 
@@ -90,31 +98,23 @@ fn main() -> io::Result<()> {
     // TODO: check for failed parse
     let hostname = hostname.parse().unwrap();
     loop {
-        if stop_signal_sent.load(atomic::Ordering::SeqCst) { break }
-
         send_ping(hostname, &mut data, &mut sender)?;
         let time_sent = Instant::now();
         stats.num_sent += 1;
 
-        // The unix ping program can be terminated here...
-        // It doesn't wait for a response to terminate and print the summary
-        if stop_signal_sent.load(atomic::Ordering::SeqCst) { break }
-
-        let res = packet_iter.next();
-        stats.num_received += 1;
+        // Unwrap? match? `?`?
+        let res = packet_iter.next_with_timeout(Duration::from_millis(1000)).unwrap();
         let rtt = Instant::now().duration_since(time_sent).as_millis();
-        stats.total_rtt += rtt;
 
-        print_stats_for_rtt(rtt, stats);
+        match res {
+            Some(_) => {
+                stats.total_rtt += rtt;
+                stats.num_received += 1;
+                print_stats_for_rtt(rtt, stats);
+            },
+            None => print_stats_failed_request(stats),
+        }
 
-        // TODO: can I allow it to be interrupted from sleeping and break immediately?
-        thread::sleep(Duration::from_millis(500));
+        sleep(Duration::from_millis(500));
     }
-
-    // -- Print summary
-
-    // println!("Num sent: {}", num_sent);
-    // println!("Num recv: {}", num_received);
-
-    Ok(())
 }
