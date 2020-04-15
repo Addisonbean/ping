@@ -76,6 +76,7 @@ fn ping_app() -> io::Result<()> {
         .arg(Arg::with_name("address")
             .takes_value(true)
             .required(true)
+            .help("The ip or hostname to ping")
         )
         .get_matches();
 
