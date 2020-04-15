@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use std::thread::sleep;
 
 fn make_ping_request<'a>(data: &'a mut [u8]) -> MutableEchoRequestPacket<'a> {
-    let mut req = MutableEchoRequestPacket::new(data).unwrap();
+    let mut req = MutableEchoRequestPacket::new(data).expect("Data provided to packet was too small");
     req.set_icmp_type(IcmpTypes::EchoRequest);
 
     req.set_identifier(0);
@@ -81,10 +81,15 @@ fn main() -> io::Result<()> {
 
     let addr = matches.value_of("address").unwrap();
 
-    let ip = match lookup_host(addr)?.iter().find(|a| matches!(a, IpAddr::V4(_)) ) {
-        Some(&a) => a,
-        None => panic!("ugh idk"), // TODO: what to do?
-    };
+    let ip = lookup_host(addr)?
+        .iter()
+        .find(|a| matches!(a, IpAddr::V4(_)) )
+
+        // .get(0)
+        .map(|a| *a )
+        .ok_or_else(||
+            io::Error::new(io::ErrorKind::NotFound, format!("The hostname '{}' could not be found.", addr))
+        )?;
 
     let protocol = Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Icmp));
     let (mut sender, mut receiver) = transport_channel(4096, protocol)?;
@@ -100,8 +105,7 @@ fn main() -> io::Result<()> {
         let time_sent = Instant::now();
         stats.num_sent += 1;
 
-        // Unwrap? match? `?`?
-        let res = packet_iter.next_with_timeout(Duration::from_millis(1000)).unwrap();
+        let res = packet_iter.next_with_timeout(Duration::from_millis(1000))?;
         let rtt = Instant::now().duration_since(time_sent).as_millis();
 
         match res {
