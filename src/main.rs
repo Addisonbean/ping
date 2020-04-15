@@ -13,6 +13,8 @@ use std::net::IpAddr;
 use std::time::{Duration, Instant};
 use std::thread::sleep;
 
+use std::net::{ToSocketAddrs, SocketAddr};
+
 fn make_ping_request<'a>(data: &'a mut [u8]) -> MutableEchoRequestPacket<'a> {
     let mut req = MutableEchoRequestPacket::new(data).unwrap();
     req.set_icmp_type(IcmpTypes::EchoRequest);
@@ -27,9 +29,9 @@ fn make_ping_request<'a>(data: &'a mut [u8]) -> MutableEchoRequestPacket<'a> {
     req
 }
 
-fn send_ping(hostname: IpAddr, data: &mut [u8], sender: &mut TransportSender) -> io::Result<usize> {
+fn send_ping(addr: IpAddr, data: &mut [u8], sender: &mut TransportSender) -> io::Result<usize> {
     let req = make_ping_request(data);
-    sender.send_to(req, hostname)
+    sender.send_to(req, addr)
 }
 
 #[derive(Clone, Copy, Default)]
@@ -61,7 +63,7 @@ fn print_stats_for_rtt(rtt: u128, stats: PingStats) {
     );
 }
 
-fn print_stats_failed_request(stats: PingStats) {
+fn print_stats_for_timeout(stats: PingStats) {
     println!("Response timed out: {:.2} average rtt, {}% total loss",
         stats.avg_rtt(),
         stats.total_loss() as u64 * 100,
@@ -74,17 +76,36 @@ fn main() -> io::Result<()> {
             .takes_value(true)
             .required(true)
         )
-        .arg(Arg::with_name("ip")
+        .arg(Arg::with_name("port")
             .takes_value(true)
             .required(true)
         )
         .get_matches();
 
     let hostname = matches.value_of("hostname").unwrap();
-    let ip = matches.value_of("ip").unwrap();
+    let port = matches.value_of("port").unwrap();
 
-    println!("Hostname: {}", hostname);
-    println!("Ip: {}", ip);
+    let addr = format!("{}:{}", hostname, port)
+        .to_socket_addrs()
+        .unwrap()
+
+        .find(|a| matches!(a, SocketAddr::V4(_)) )
+        // .next()
+
+        .as_ref()
+        .map(SocketAddr::ip);
+
+    // let addr = format!("{}:{}", hostname, port)
+        // .to_socket_addrs()
+        // .unwrap()
+        // .find(|a| matches!(a, SocketAddr::V4(_)) )
+        // .as_ref()
+        // .map(SocketAddr::ip);
+
+    let addr = match addr {
+        Some(a) => a,
+        None => panic!("idk???"),
+    };
 
     let protocol = Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Icmp));
     let (mut sender, mut receiver) = transport_channel(4096, protocol)?;
@@ -95,10 +116,8 @@ fn main() -> io::Result<()> {
 
     let mut stats = PingStats::default();
 
-    // TODO: check for failed parse
-    let hostname = hostname.parse().unwrap();
     loop {
-        send_ping(hostname, &mut data, &mut sender)?;
+        send_ping(addr, &mut data, &mut sender)?;
         let time_sent = Instant::now();
         stats.num_sent += 1;
 
@@ -112,7 +131,7 @@ fn main() -> io::Result<()> {
                 stats.num_received += 1;
                 print_stats_for_rtt(rtt, stats);
             },
-            None => print_stats_failed_request(stats),
+            None => print_stats_for_timeout(stats),
         }
 
         sleep(Duration::from_millis(500));
