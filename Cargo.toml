@@ -6,4 +6,5 @@ edition = "2018"
 
 [dependencies]
 clap = "2"
+dns-lookup = "1.0.1"
 pnet = "0.25"

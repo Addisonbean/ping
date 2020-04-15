@@ -1,4 +1,7 @@
 use clap::{Arg, App};
+
+use dns_lookup::lookup_host;
+
 use pnet::packet::icmp::{
     echo_request::MutableEchoRequestPacket,
     IcmpTypes,
@@ -12,8 +15,6 @@ use std::io;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 use std::thread::sleep;
-
-use std::net::{ToSocketAddrs, SocketAddr};
 
 fn make_ping_request<'a>(data: &'a mut [u8]) -> MutableEchoRequestPacket<'a> {
     let mut req = MutableEchoRequestPacket::new(data).unwrap();
@@ -50,7 +51,7 @@ impl PingStats {
         }
     }
 
-    fn total_loss(self) -> f64 {
+    fn total_percent_loss(self) -> f64 {
         1.0 - self.num_received as f64 / self.num_sent as f64
     }
 }
@@ -59,52 +60,30 @@ fn print_stats_for_rtt(rtt: u128, stats: PingStats) {
     println!("Response received: {}ms rtt, {:.2} average rtt, {}% total loss",
         rtt,
         stats.avg_rtt(),
-        stats.total_loss() as u64 * 100,
+        stats.total_percent_loss() as u64 * 100,
     );
 }
 
 fn print_stats_for_timeout(stats: PingStats) {
     println!("Response timed out: {:.2} average rtt, {}% total loss",
         stats.avg_rtt(),
-        stats.total_loss() as u64 * 100,
+        stats.total_percent_loss() as u64 * 100,
     );
 }
 
 fn main() -> io::Result<()> {
     let matches = App::new("ping")
-        .arg(Arg::with_name("hostname")
-            .takes_value(true)
-            .required(true)
-        )
-        .arg(Arg::with_name("port")
+        .arg(Arg::with_name("address")
             .takes_value(true)
             .required(true)
         )
         .get_matches();
 
-    let hostname = matches.value_of("hostname").unwrap();
-    let port = matches.value_of("port").unwrap();
+    let addr = matches.value_of("address").unwrap();
 
-    let addr = format!("{}:{}", hostname, port)
-        .to_socket_addrs()
-        .unwrap()
-
-        .find(|a| matches!(a, SocketAddr::V4(_)) )
-        // .next()
-
-        .as_ref()
-        .map(SocketAddr::ip);
-
-    // let addr = format!("{}:{}", hostname, port)
-        // .to_socket_addrs()
-        // .unwrap()
-        // .find(|a| matches!(a, SocketAddr::V4(_)) )
-        // .as_ref()
-        // .map(SocketAddr::ip);
-
-    let addr = match addr {
-        Some(a) => a,
-        None => panic!("idk???"),
+    let ip = match lookup_host(addr)?.iter().find(|a| matches!(a, IpAddr::V4(_)) ) {
+        Some(&a) => a,
+        None => panic!("ugh idk"), // TODO: what to do?
     };
 
     let protocol = Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Icmp));
@@ -117,7 +96,7 @@ fn main() -> io::Result<()> {
     let mut stats = PingStats::default();
 
     loop {
-        send_ping(addr, &mut data, &mut sender)?;
+        send_ping(ip, &mut data, &mut sender)?;
         let time_sent = Instant::now();
         stats.num_sent += 1;
 
