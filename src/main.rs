@@ -6,13 +6,34 @@ use pnet::packet::icmp::{
 use pnet::packet::ip::IpNextHeaderProtocols;
 use pnet::packet::util::checksum;
 use pnet::packet::Packet;
-use pnet::transport::{icmp_packet_iter, TransportChannelType::Layer4, TransportProtocol, transport_channel};
+use pnet::transport::{icmp_packet_iter, TransportChannelType::Layer4, TransportProtocol, TransportSender, transport_channel};
 
 use std::io;
+use std::net::IpAddr;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic;
 use std::thread;
+use std::time::Duration;
+
+fn make_ping_request<'a>(data: &'a mut [u8]) -> MutableEchoRequestPacket<'a> {
+    let mut req = MutableEchoRequestPacket::new(data).unwrap();
+    req.set_icmp_type(IcmpTypes::EchoRequest);
+
+    // req.set_identifier(0);
+    // req.set_sequence_number(0);
+
+    req.set_checksum(0);
+    let cs = checksum(req.packet(), 1);
+    req.set_checksum(cs);
+
+    req
+}
+
+fn send_ping(hostname: IpAddr, data: &mut [u8], sender: &mut TransportSender) -> io::Result<usize> {
+    let req = make_ping_request(data);
+    sender.send_to(req, hostname)
+}
 
 fn main() -> io::Result<()> {
     let matches = App::new("ping")
@@ -32,46 +53,47 @@ fn main() -> io::Result<()> {
     println!("Hostname: {}", hostname);
     println!("Ip: {}", ip);
 
-    // -- Create channels --
-
-    // TODO: why 4096? At least put it in a constant...
     let protocol = Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Icmp));
     let (mut sender, mut receiver) = transport_channel(4096, protocol)?;
     sender.set_ttl(64)?;
 
-    // -- Create packet --
 
-    let mut buffer = [0; MutableEchoRequestPacket::minimum_packet_size()];
-    let mut req = MutableEchoRequestPacket::new(&mut buffer).unwrap();
-    req.set_icmp_type(IcmpTypes::EchoRequest);
-    // req.set_identifier(0);
-    // req.set_sequence_number(0);
+    let stop_signal_sent = Arc::new(AtomicBool::new(false));
+    let stop_signal_sent_handler = Arc::clone(&stop_signal_sent);
+    ctrlc::set_handler(move || {
+        stop_signal_sent_handler.store(true, atomic::Ordering::SeqCst);
+    }).expect("Could not set SIGINT/SIGTERM handler.");
 
-    req.set_checksum(0);
-    let cs = checksum(req.packet(), 1);
-    req.set_checksum(cs);
+    let mut packet_iter = icmp_packet_iter(&mut receiver);
+    let mut data = [0; MutableEchoRequestPacket::minimum_packet_size()];
 
-    // -- Send it
+    let mut num_sent = 0;
+    let mut num_received = 0;
 
     // TODO: check for failed parse
-    sender.send_to(req, hostname.parse().unwrap())?;
+    let hostname = hostname.parse().unwrap();
+    loop {
+        if stop_signal_sent.load(atomic::Ordering::SeqCst) { break }
 
-    let mut num_received = Arc::new(AtomicU64::new(0));
+        send_ping(hostname, &mut data, &mut sender)?;
+        num_sent += 1;
 
-    let mut thread_num_received = Arc::clone(&num_received);
-    let tmp = thread::spawn(move || {
-        let mut iter = icmp_packet_iter(&mut receiver);
+        // The unix ping program can be terminated here...
+        // It doesn't wait for a response to terminate and print the summary
+        if stop_signal_sent.load(atomic::Ordering::SeqCst) { break }
 
-        thread_num_received.fetch_add(1, atomic::Ordering::SeqCst);
+        let res = packet_iter.next();
+        println!("{:?}", res);
+        num_received += 1;
 
-        println!("{:?}", iter.next());
-    });
-
-    tmp.join().unwrap();
+        // TODO: can I allow it to be interrupted from sleeping and break immediately?
+        thread::sleep(Duration::from_millis(500));
+    }
 
     // -- Print summary
 
-    println!("Num received: {}", num_received.load(atomic::Ordering::SeqCst));
+    println!("Num sent: {}", num_sent);
+    println!("Num recv: {}", num_received);
 
     Ok(())
 }
