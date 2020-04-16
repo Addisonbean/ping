@@ -53,6 +53,7 @@ impl PingStats {
 fn ping_app() -> io::Result<()> {
     let ttl_help = format!("The time to live for the icmp echo request, in seconds. Default is {}.", DEFAULT_TTL);
     let timeout_help = format!("The number of seconds to wait for a reply. Default is {}.", DEFAULT_WAIT);
+
     let config = App::new("ping")
         .arg(Arg::with_name("address")
             .takes_value(true)
@@ -95,21 +96,20 @@ fn ping_app() -> io::Result<()> {
         )
         .get_matches();
 
-    let addr = config.value_of("address").unwrap();
-
-    let ips = lookup_host(addr)?;
-    let ip =
+    let host = config.value_of("address").unwrap();
+    let addrs = lookup_host(host)?;
+    let addr =
         if config.is_present("ipv4") {
-            ips.into_iter().find(IpAddr::is_ipv4)
+            addrs.into_iter().find(IpAddr::is_ipv4)
         } else if config.is_present("ipv6") {
-            ips.into_iter().find(IpAddr::is_ipv6)
+            addrs.into_iter().find(IpAddr::is_ipv6)
         } else {
-            ips.get(0).cloned()
+            addrs.get(0).cloned()
         }
         .ok_or_else(||
             io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("The hostname '{}' could not be found.", addr),
+                format!("The hostname '{}' could not be found.", host),
             )
         )?;
 
@@ -142,10 +142,14 @@ fn ping_app() -> io::Result<()> {
             )
         )?;
 
-    println!("Sending pings to {}...", ip);
+    println!("Sending pings to {}...", addr);
 
-    let (mut sender, mut receiver) = create_channels(ip, ttl)?;
-    let mut packet_iter = packet_iter(ip, &mut receiver);
+    start_pings(addr, ttl, timeout, packets_to_send)
+}
+
+fn start_pings(addr: IpAddr, ttl: u8, timeout: u64, packets_to_send: Option<u64>) -> io::Result<()> {
+    let (mut sender, mut receiver) = create_channels(addr, ttl)?;
+    let mut packet_iter = packet_iter(addr, &mut receiver);
 
     let mut data = [0; PACKET_DATA_SIZE];
     let mut stats = PingStats::default();
@@ -155,7 +159,7 @@ fn ping_app() -> io::Result<()> {
             break;
         }
 
-        send_ping(ip, &mut data, &mut sender)?;
+        send_ping(addr, &mut data, &mut sender)?;
 
         let time_sent = Instant::now();
         stats.num_sent += 1;
