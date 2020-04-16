@@ -28,7 +28,7 @@ pub const PACKET_DATA_SIZE: usize = 64;
 
 const CHANNEL_BUFFER_SIZE: usize = 1024;
 
-fn make_icmp_ping_request<'a>(data: &'a mut [u8]) -> MutableEchoRequestPacket<'a> {
+fn make_icmp_ping_request(data: &mut [u8]) -> MutableEchoRequestPacket {
     let mut req = MutableEchoRequestPacket::new(data).expect("Data provided to packet was too small");
     req.set_icmp_type(IcmpTypes::EchoRequest);
 
@@ -42,7 +42,7 @@ fn make_icmp_ping_request<'a>(data: &'a mut [u8]) -> MutableEchoRequestPacket<'a
     req
 }
 
-fn make_icmpv6_ping_request<'a>(data: &'a mut [u8]) -> MutableIcmpv6Packet<'a> {
+fn make_icmpv6_ping_request(data: &mut [u8]) -> MutableIcmpv6Packet {
     let mut req = MutableIcmpv6Packet::new(data).expect("Data provided to packet was too small");
     req.set_icmpv6_type(Icmpv6Types::EchoRequest);
 
@@ -67,7 +67,7 @@ impl<'a> PacketIter<'a> {
     }
 }
 
-pub fn packet_iter<'a>(addr: IpAddr, receiver: &'a mut TransportReceiver) -> PacketIter<'a> {
+pub fn packet_iter(addr: IpAddr, receiver: &mut TransportReceiver) -> PacketIter {
     match addr {
         IpAddr::V4(_) => PacketIter::V4(icmp_packet_iter(receiver)),
         IpAddr::V6(_) => PacketIter::V6(icmpv6_packet_iter(receiver)),
