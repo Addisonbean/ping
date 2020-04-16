@@ -1,4 +1,4 @@
-use clap::{Arg, App};
+use clap::{App, Arg};
 
 use dns_lookup::lookup_host;
 
@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 mod ping;
 use ping::{create_channels, PACKET_DATA_SIZE, packet_iter, send_ping};
+
+const DEFAULT_TTL: u8 = 64;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct PingStats {
@@ -53,9 +55,24 @@ fn ping_app() -> io::Result<()> {
             .required(true)
             .help("The ip or hostname to ping")
         )
+        .arg(Arg::with_name("ttl")
+            .takes_value(true)
+            .required(false)
+            .help("The time to live for the icmp echo request, in seconds")
+            .long("--ttl")
+        )
         .get_matches();
 
     let addr = matches.value_of("address").unwrap();
+    let ttl = matches.value_of("ttl")
+        .map(str::parse::<u8>)
+        .unwrap_or(Ok(DEFAULT_TTL))
+        .map_err(|_|
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "The value for the 'ttl' flag must be an integer between 0 and 255",
+            )
+        )?;
 
     let ip = lookup_host(addr)?
         .get(0)
@@ -68,7 +85,7 @@ fn ping_app() -> io::Result<()> {
         )?;
 
 
-    let (mut sender, mut receiver) = create_channels(ip)?;
+    let (mut sender, mut receiver) = create_channels(ip, ttl)?;
     let mut packet_iter = packet_iter(ip, &mut receiver);
 
     let mut data = [0; PACKET_DATA_SIZE];

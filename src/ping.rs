@@ -74,12 +74,12 @@ pub fn packet_iter<'a>(addr: IpAddr, receiver: &'a mut TransportReceiver) -> Pac
     }
 }
 
-pub fn create_channels(addr: IpAddr) -> io::Result<(TransportSender, TransportReceiver)> {
+pub fn create_channels(addr: IpAddr, ttl: u8) -> io::Result<(TransportSender, TransportReceiver)> {
     Ok(match addr {
         IpAddr::V4(_) => {
             let protocol = Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Icmp));
             let (mut sender, receiver) = transport_channel(CHANNEL_BUFFER_SIZE, protocol)?;
-            sender.set_ttl(64)?;
+            sender.set_ttl(ttl)?;
 
             (sender, receiver)
         },
