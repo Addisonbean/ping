@@ -12,6 +12,7 @@ mod ping;
 use ping::{create_channels, PACKET_DATA_SIZE, packet_iter, send_ping};
 
 const DEFAULT_TTL: u8 = 64;
+const DEFAULT_WAIT: u64 = 2;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct PingStats {
@@ -50,6 +51,8 @@ impl PingStats {
 }
 
 fn ping_app() -> io::Result<()> {
+    let ttl_help = format!("The time to live for the icmp echo request, in seconds. Default is {}.", DEFAULT_TTL);
+    let timeout_help = format!("The number of seconds to wait for a reply. Default is {}.", DEFAULT_WAIT);
     let config = App::new("ping")
         .arg(Arg::with_name("address")
             .takes_value(true)
@@ -59,7 +62,7 @@ fn ping_app() -> io::Result<()> {
         .arg(Arg::with_name("ttl")
             .takes_value(true)
             .required(false)
-            .help("The time to live for the icmp echo request, in seconds")
+            .help(&ttl_help)
             .short("t")
             .long("ttl")
         )
@@ -76,16 +79,32 @@ fn ping_app() -> io::Result<()> {
             .help("Force ping to use IPv6.")
             .short("6")
         )
+        .arg(Arg::with_name("timeout")
+            .takes_value(true)
+            .required(false)
+            .help(&timeout_help)
+            .short("-W")
+            .long("--wait")
+        )
         .get_matches();
 
     let addr = config.value_of("address").unwrap();
     let ttl = config.value_of("ttl")
-        .map(str::parse::<u8>)
+        .map(str::parse)
         .unwrap_or(Ok(DEFAULT_TTL))
         .map_err(|_|
             io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "The value for the 'ttl' flag must be an integer between 0 and 255",
+            )
+        )?;
+    let timeout = config.value_of("timeout")
+        .map(str::parse)
+        .unwrap_or(Ok(DEFAULT_WAIT))
+        .map_err(|_|
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "The value for the 'timeout' flag must be an integer greater then 0.",
             )
         )?;
 
@@ -119,7 +138,7 @@ fn ping_app() -> io::Result<()> {
         let time_sent = Instant::now();
         stats.num_sent += 1;
 
-        let success = packet_iter.next_with_timeout(Duration::from_millis(1000))?;
+        let success = packet_iter.next_with_timeout(Duration::from_secs(timeout))?;
         let rtt = Instant::now().duration_since(time_sent).as_millis();
 
         if success {
