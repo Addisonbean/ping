@@ -34,17 +34,25 @@ impl PingStats {
         1.0 - self.num_received as f64 / self.num_sent as f64
     }
 
+    pub fn total_lost(self) -> u64 {
+        self.num_sent - self.num_received
+    }
+
     fn print_stats_for_rtt(self, rtt: u128) {
-        println!("Response received: {}ms rtt, {} average rtt, {:.2}% total loss",
+        println!("Response received: {}ms rtt, {} average rtt, {}/{} lost ({:.2}%)",
             rtt,
             self.avg_rtt(),
+            self.total_lost(),
+            self.num_sent,
             self.total_percent_loss() * 100.0,
         );
     }
 
     fn print_stats_for_timeout(self) {
-        println!("Response timed out: {} average rtt, {:.2}% total loss",
+        println!("Response timed out: {} average rtt, {}/{} lost ({:.2}%)",
             self.avg_rtt(),
+            self.total_lost(),
+            self.num_sent,
             self.total_percent_loss() * 100.0,
         );
     }
