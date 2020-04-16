@@ -3,6 +3,7 @@ use clap::{App, Arg};
 use dns_lookup::lookup_host;
 
 use std::io;
+use std::net::IpAddr;
 use std::process::exit;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -49,7 +50,7 @@ impl PingStats {
 }
 
 fn ping_app() -> io::Result<()> {
-    let matches = App::new("ping")
+    let config = App::new("ping")
         .arg(Arg::with_name("address")
             .takes_value(true)
             .required(true)
@@ -59,12 +60,26 @@ fn ping_app() -> io::Result<()> {
             .takes_value(true)
             .required(false)
             .help("The time to live for the icmp echo request, in seconds")
-            .long("--ttl")
+            .short("t")
+            .long("ttl")
+        )
+        .arg(Arg::with_name("ipv4")
+            .takes_value(false)
+            .required(false)
+            .help("Force ping to use IPv4.")
+            .short("4")
+            .conflicts_with("ipv6")
+        )
+        .arg(Arg::with_name("ipv6")
+            .takes_value(false)
+            .required(false)
+            .help("Force ping to use IPv6.")
+            .short("6")
         )
         .get_matches();
 
-    let addr = matches.value_of("address").unwrap();
-    let ttl = matches.value_of("ttl")
+    let addr = config.value_of("address").unwrap();
+    let ttl = config.value_of("ttl")
         .map(str::parse::<u8>)
         .unwrap_or(Ok(DEFAULT_TTL))
         .map_err(|_|
@@ -74,9 +89,15 @@ fn ping_app() -> io::Result<()> {
             )
         )?;
 
-    let ip = lookup_host(addr)?
-        .get(0)
-        .cloned()
+    let ips = lookup_host(addr)?;
+    let ip =
+        if config.is_present("ipv4") {
+            ips.into_iter().find(IpAddr::is_ipv4)
+        } else if config.is_present("ipv6") {
+            ips.into_iter().find(IpAddr::is_ipv6)
+        } else {
+            ips.get(0).cloned()
+        }
         .ok_or_else(||
             io::Error::new(
                 io::ErrorKind::NotFound,
@@ -84,6 +105,7 @@ fn ping_app() -> io::Result<()> {
             )
         )?;
 
+    println!("Sending pings to {}...", ip);
 
     let (mut sender, mut receiver) = create_channels(ip, ttl)?;
     let mut packet_iter = packet_iter(ip, &mut receiver);
