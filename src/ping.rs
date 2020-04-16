@@ -46,6 +46,9 @@ fn make_icmpv6_ping_request(data: &mut [u8]) -> MutableIcmpv6Packet {
     let mut req = MutableIcmpv6Packet::new(data).expect("Data provided to packet was too small");
     req.set_icmpv6_type(Icmpv6Types::EchoRequest);
 
+    // The `pnet` crate doesn't have the option to set the
+    // identifier or sequence number for icmpv6 packets
+
     req.set_checksum(0);
     let cs = checksum(req.packet(), 1);
     req.set_checksum(cs);
@@ -86,6 +89,9 @@ pub fn create_channels(addr: IpAddr, ttl: u8) -> io::Result<(TransportSender, Tr
         IpAddr::V6(_) => {
             let protocol = Layer4(TransportProtocol::Ipv6(IpNextHeaderProtocols::Icmpv6));
             let (sender, receiver) = transport_channel(CHANNEL_BUFFER_SIZE, protocol)?;
+
+            // The `pnet` crate doesn't have a method to set
+            // the hop limit for plain icmpv6 packets
 
             (sender, receiver)
         },
