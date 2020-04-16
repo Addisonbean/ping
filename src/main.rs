@@ -2,46 +2,13 @@ use clap::{Arg, App};
 
 use dns_lookup::lookup_host;
 
-use pnet::packet::icmp::{
-    echo_request::MutableEchoRequestPacket,
-    IcmpTypes,
-};
-use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::util::checksum;
-use pnet::packet::Packet;
-use pnet::packet::icmpv6::{MutableIcmpv6Packet, Icmpv6Types};
-use pnet::transport::{icmp_packet_iter, icmpv6_packet_iter, TransportChannelType::Layer4, TransportProtocol, TransportSender, TransportReceiver, transport_channel, Icmpv6TransportChannelIterator, IcmpTransportChannelIterator};
-
 use std::io;
-use std::net::IpAddr;
 use std::process::exit;
 use std::time::{Duration, Instant};
 use std::thread::sleep;
 
-fn make_icmp_ping_request<'a>(data: &'a mut [u8]) -> MutableEchoRequestPacket<'a> {
-    let mut req = MutableEchoRequestPacket::new(data).expect("Data provided to packet was too small");
-    req.set_icmp_type(IcmpTypes::EchoRequest);
-
-    req.set_identifier(0);
-    req.set_sequence_number(0);
-
-    req.set_checksum(0);
-    let cs = checksum(req.packet(), 1);
-    req.set_checksum(cs);
-
-    req
-}
-
-fn make_icmpv6_ping_request<'a>(data: &'a mut [u8]) -> MutableIcmpv6Packet<'a> {
-    let mut req = MutableIcmpv6Packet::new(data).expect("Data provided to packet was too small");
-    req.set_icmpv6_type(Icmpv6Types::EchoRequest);
-
-    req.set_checksum(0);
-    let cs = checksum(req.packet(), 1);
-    req.set_checksum(cs);
-
-    req
-}
+mod ping;
+use ping::{send_ping, packet_iter, create_channels};
 
 #[derive(Clone, Copy, Debug, Default)]
 struct PingStats {
@@ -51,7 +18,7 @@ struct PingStats {
 }
 
 impl PingStats {
-    fn avg_rtt(self) -> u128 {
+    pub fn avg_rtt(self) -> u128 {
         if self.num_received != 0 {
             self.total_rtt / self.num_received as u128
         } else {
@@ -59,75 +26,24 @@ impl PingStats {
         }
     }
 
-    fn total_percent_loss(self) -> f64 {
+    pub fn total_percent_loss(self) -> f64 {
         1.0 - self.num_received as f64 / self.num_sent as f64
     }
-}
 
-fn print_stats_for_rtt(rtt: u128, stats: PingStats) {
-    println!("Response received: {}ms rtt, {} average rtt, {:.2}% total loss",
-        rtt,
-        stats.avg_rtt(),
-        stats.total_percent_loss() * 100.0,
-    );
-}
-
-fn print_stats_for_timeout(stats: PingStats) {
-    println!("Response timed out: {} average rtt, {:.2}% total loss",
-        stats.avg_rtt(),
-        stats.total_percent_loss() * 100.0,
-    );
-}
-
-enum PacketIter<'a> {
-    V4(IcmpTransportChannelIterator<'a>),
-    V6(Icmpv6TransportChannelIterator<'a>),
-}
-
-impl<'a> PacketIter<'a> {
-    fn next_with_timeout(&mut self, t: Duration) -> io::Result<bool> {
-        match self {
-            PacketIter::V4(iter) => iter.next_with_timeout(t).map(|r| r.is_some()),
-            PacketIter::V6(iter) => iter.next_with_timeout(t).map(|r| r.is_some()),
-        }
+    // Make these methods?
+    fn print_stats_for_rtt(self, rtt: u128) {
+        println!("Response received: {}ms rtt, {} average rtt, {:.2}% total loss",
+            rtt,
+            self.avg_rtt(),
+            self.total_percent_loss() * 100.0,
+        );
     }
-}
 
-fn create_channels(addr: IpAddr) -> io::Result<(TransportSender, TransportReceiver)> {
-    Ok(match addr {
-        IpAddr::V4(_) => {
-            let protocol = Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Icmp));
-            let (mut sender, receiver) = transport_channel(4096, protocol)?;
-            sender.set_ttl(64)?;
-
-            (sender, receiver)
-        },
-        IpAddr::V6(_) => {
-            let protocol = Layer4(TransportProtocol::Ipv6(IpNextHeaderProtocols::Icmpv6));
-            let (sender, receiver) = transport_channel(4096, protocol)?;
-
-            (sender, receiver)
-        },
-    })
-}
-
-fn packet_iter<'a>(addr: IpAddr, receiver: &'a mut TransportReceiver) -> PacketIter<'a> {
-    match addr {
-        IpAddr::V4(_) => PacketIter::V4(icmp_packet_iter(receiver)),
-        IpAddr::V6(_) => PacketIter::V6(icmpv6_packet_iter(receiver)),
-    }
-}
-
-fn send_ping(addr: IpAddr, data: &mut [u8], sender: &mut TransportSender) -> io::Result<usize> {
-    match addr {
-        IpAddr::V4(_) => {
-            let req = make_icmp_ping_request(data);
-            sender.send_to(req, addr)
-        },
-        IpAddr::V6(_) => {
-            let req = make_icmpv6_ping_request(data);
-            sender.send_to(req, addr)
-        },
+    fn print_stats_for_timeout(self) {
+        println!("Response timed out: {} average rtt, {:.2}% total loss",
+            self.avg_rtt(),
+            self.total_percent_loss() * 100.0,
+        );
     }
 }
 
@@ -174,9 +90,9 @@ fn ping_app() -> io::Result<()> {
         if success {
             stats.total_rtt += rtt;
             stats.num_received += 1;
-            print_stats_for_rtt(rtt, stats);
+            stats.print_stats_for_rtt(rtt);
         } else {
-            print_stats_for_timeout(stats);
+            stats.print_stats_for_timeout();
         }
 
         sleep(Duration::from_millis(500));
