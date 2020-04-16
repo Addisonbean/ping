@@ -83,30 +83,19 @@ fn ping_app() -> io::Result<()> {
             .takes_value(true)
             .required(false)
             .help(&timeout_help)
-            .short("-W")
-            .long("--wait")
+            .short("W")
+            .long("wait")
+        )
+        .arg(Arg::with_name("packet_count")
+            .takes_value(true)
+            .required(false)
+            .help("Stop sending packets after <packet_count> packets have been sent.")
+            .short("c")
+            .long("count")
         )
         .get_matches();
 
     let addr = config.value_of("address").unwrap();
-    let ttl = config.value_of("ttl")
-        .map(str::parse)
-        .unwrap_or(Ok(DEFAULT_TTL))
-        .map_err(|_|
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "The value for the 'ttl' flag must be an integer between 0 and 255",
-            )
-        )?;
-    let timeout = config.value_of("timeout")
-        .map(str::parse)
-        .unwrap_or(Ok(DEFAULT_WAIT))
-        .map_err(|_|
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "The value for the 'timeout' flag must be an integer greater then 0.",
-            )
-        )?;
 
     let ips = lookup_host(addr)?;
     let ip =
@@ -124,6 +113,35 @@ fn ping_app() -> io::Result<()> {
             )
         )?;
 
+    let ttl = config.value_of("ttl")
+        .map(str::parse)
+        .unwrap_or(Ok(DEFAULT_TTL))
+        .map_err(|_|
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "The value for the 'ttl' flag must be an integer between 0 and 255",
+            )
+        )?;
+    let timeout = config.value_of("timeout")
+        .map(str::parse)
+        .unwrap_or(Ok(DEFAULT_WAIT))
+        .map_err(|_|
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "The value for the 'timeout' flag must be a positive integer.",
+            )
+        )?;
+
+    let packets_to_send = config.value_of("packet_count")
+        .map(str::parse::<u64>)
+        .transpose()
+        .map_err(|_|
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "The value for the 'packet_count' flag must be a positive integer.",
+            )
+        )?;
+
     println!("Sending pings to {}...", ip);
 
     let (mut sender, mut receiver) = create_channels(ip, ttl)?;
@@ -133,6 +151,10 @@ fn ping_app() -> io::Result<()> {
     let mut stats = PingStats::default();
 
     loop {
+        if packets_to_send.map(|c| stats.num_sent >= c).unwrap_or(false) {
+            break;
+        }
+
         send_ping(ip, &mut data, &mut sender)?;
 
         let time_sent = Instant::now();
@@ -151,6 +173,8 @@ fn ping_app() -> io::Result<()> {
 
         sleep(Duration::from_millis(500));
     }
+
+    Ok(())
 }
 
 fn main() {
