@@ -8,7 +8,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 mod ping;
-use ping::{create_channels, packet_iter, send_ping};
+use ping::{create_channels, PACKET_DATA_SIZE, packet_iter, send_ping};
 
 #[derive(Clone, Copy, Debug, Default)]
 struct PingStats {
@@ -30,7 +30,6 @@ impl PingStats {
         1.0 - self.num_received as f64 / self.num_sent as f64
     }
 
-    // Make these methods?
     fn print_stats_for_rtt(self, rtt: u128) {
         println!("Response received: {}ms rtt, {} average rtt, {:.2}% total loss",
             rtt,
@@ -70,12 +69,9 @@ fn ping_app() -> io::Result<()> {
 
 
     let (mut sender, mut receiver) = create_channels(ip)?;
-
     let mut packet_iter = packet_iter(ip, &mut receiver);
 
-    // TODO: at least make a constant or something
-    let mut data = [0; 64];
-
+    let mut data = [0; PACKET_DATA_SIZE];
     let mut stats = PingStats::default();
 
     loop {

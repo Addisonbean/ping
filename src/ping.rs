@@ -24,6 +24,10 @@ use std::io;
 use std::net::IpAddr;
 use std::time::Duration;
 
+pub const PACKET_DATA_SIZE: usize = 64;
+
+const CHANNEL_BUFFER_SIZE: usize = 1024;
+
 fn make_icmp_ping_request<'a>(data: &'a mut [u8]) -> MutableEchoRequestPacket<'a> {
     let mut req = MutableEchoRequestPacket::new(data).expect("Data provided to packet was too small");
     req.set_icmp_type(IcmpTypes::EchoRequest);
@@ -74,14 +78,14 @@ pub fn create_channels(addr: IpAddr) -> io::Result<(TransportSender, TransportRe
     Ok(match addr {
         IpAddr::V4(_) => {
             let protocol = Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Icmp));
-            let (mut sender, receiver) = transport_channel(4096, protocol)?;
+            let (mut sender, receiver) = transport_channel(CHANNEL_BUFFER_SIZE, protocol)?;
             sender.set_ttl(64)?;
 
             (sender, receiver)
         },
         IpAddr::V6(_) => {
             let protocol = Layer4(TransportProtocol::Ipv6(IpNextHeaderProtocols::Icmpv6));
-            let (sender, receiver) = transport_channel(4096, protocol)?;
+            let (sender, receiver) = transport_channel(CHANNEL_BUFFER_SIZE, protocol)?;
 
             (sender, receiver)
         },
