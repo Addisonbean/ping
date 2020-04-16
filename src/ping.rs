@@ -2,11 +2,23 @@ use pnet::packet::icmp::{
     echo_request::MutableEchoRequestPacket,
     IcmpTypes,
 };
-use pnet::packet::ip::IpNextHeaderProtocols;
-use pnet::packet::util::checksum;
-use pnet::packet::Packet;
-use pnet::packet::icmpv6::{MutableIcmpv6Packet, Icmpv6Types};
-use pnet::transport::{icmp_packet_iter, icmpv6_packet_iter, TransportChannelType::Layer4, TransportProtocol, TransportSender, TransportReceiver, transport_channel, Icmpv6TransportChannelIterator, IcmpTransportChannelIterator};
+use pnet::packet::{
+    icmpv6::{MutableIcmpv6Packet, Icmpv6Types},
+    ip::IpNextHeaderProtocols,
+    Packet,
+    util::checksum,
+};
+use pnet::transport::{
+    icmp_packet_iter,
+    IcmpTransportChannelIterator,
+    icmpv6_packet_iter,
+    Icmpv6TransportChannelIterator,
+    transport_channel,
+    TransportChannelType::Layer4,
+    TransportProtocol,
+    TransportReceiver,
+    TransportSender,
+};
 
 use std::io;
 use std::net::IpAddr;

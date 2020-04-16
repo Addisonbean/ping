@@ -4,11 +4,11 @@ use dns_lookup::lookup_host;
 
 use std::io;
 use std::process::exit;
-use std::time::{Duration, Instant};
 use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 mod ping;
-use ping::{send_ping, packet_iter, create_channels};
+use ping::{create_channels, packet_iter, send_ping};
 
 #[derive(Clone, Copy, Debug, Default)]
 struct PingStats {
