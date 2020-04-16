@@ -122,6 +122,7 @@ fn ping_app() -> io::Result<()> {
                 "The value for the 'ttl' flag must be an integer between 0 and 255",
             )
         )?;
+
     let timeout = config.value_of("timeout")
         .map(str::parse)
         .unwrap_or(Ok(DEFAULT_WAIT))
@@ -149,7 +150,7 @@ fn ping_app() -> io::Result<()> {
 
 fn start_pings(addr: IpAddr, ttl: u8, timeout: u64, packets_to_send: Option<u64>) -> io::Result<()> {
     let (mut sender, mut receiver) = create_channels(addr, ttl)?;
-    let mut packet_iter = packet_iter(addr, &mut receiver);
+    let mut packets = packet_iter(addr, &mut receiver);
 
     let mut data = [0; PACKET_DATA_SIZE];
     let mut stats = PingStats::default();
@@ -164,7 +165,7 @@ fn start_pings(addr: IpAddr, ttl: u8, timeout: u64, packets_to_send: Option<u64>
         let time_sent = Instant::now();
         stats.num_sent += 1;
 
-        let success = packet_iter.next_with_timeout(Duration::from_secs(timeout))?;
+        let success = packets.next_with_timeout(Duration::from_secs(timeout))?;
         let rtt = Instant::now().duration_since(time_sent).as_millis();
 
         if success {
